@@ -5,7 +5,7 @@ local LocalPlayer = Players.LocalPlayer
 
 repeat task.wait() until LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 
--- ✅ โหลด WindUI
+-- โหลด WindUI
 local success, WindUI = pcall(function()
     return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 end)
@@ -14,154 +14,118 @@ if not success or not WindUI then
     return
 end
 
--- ✅ UI Window
+-- UI
 local Window = WindUI:CreateWindow({
-    Title = "Anime Fruit",
-    Icon = "door-open",
+    Title = "Anime Fruit Auto All Skills",
+    Icon = "zap",
     Author = "By Poomipad Chaisanan",
     Size = UDim2.fromOffset(500, 400),
-    Transparent = true,
     Theme = "Dark",
-    SideBarWidth = 200,
-    Background = "", 
-    BackgroundImageTransparency = 0.42,
-    HideSearchBar = true,
-    ScrollBarEnabled = false,
-    User = {
-        Enabled = true,
-        Anonymous = false,
-        Callback = function() end,
-    },
 })
+local Tab = Window:Tab({ Title = "Main", Icon = "swords" })
+Tab:Section({ Title = "Auto Farm Settings" })
 
-local Tabs = {
-    MainTab = Window:Tab({ Title = "Main", Icon = "crown" }),
-}
-Tabs.MainTab:Section({ Title = "Main" })
+-- หา Remote (เปลี่ยนให้ตรงกับในเกม)
+local remote = ReplicatedStorage:WaitForChild("EventConfiguration"):WaitForChild("SkillRemote") -- ⚠️ เปลี่ยนชื่อให้ตรง
 
--- ✅ ฟังก์ชันหาศัตรูใกล้ที่สุด
+-- หาศัตรูใกล้สุด
 local function getClosestEnemy()
-    local closest, shortest = nil, math.huge
     local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
-    local myPos = myChar.HumanoidRootPart.Position
+    local myPos = myChar and myChar:FindFirstChild("HumanoidRootPart") and myChar.HumanoidRootPart.Position
+    if not myPos then return end
+    local closest, dist = nil, math.huge
 
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
             if obj.Humanoid.Health > 0 then
-                local dist = (myPos - obj.HumanoidRootPart.Position).Magnitude
-                if dist < shortest then
-                    shortest = dist
+                local d = (myPos - obj.HumanoidRootPart.Position).Magnitude
+                if d < dist then
+                    dist = d
                     closest = obj
                 end
             end
         end
     end
-
     return closest
 end
 
--- ✅ TP ไปมอนสเตอร์
-local floatConnection
-Tabs.MainTab:Toggle({
-    Title = "TP to Monster",
-    Icon = "crosshair",
-    Value = false,
-    Callback = function(Value)
-        if floatConnection then
-            floatConnection:Disconnect()
-            floatConnection = nil
-        end
+-- ค้นหาชื่อสกิลทั้งหมด
+local function getAllSkills()
+    local skillList = {}
+    local skillFolder = LocalPlayer:FindFirstChild("Skills") or LocalPlayer:FindFirstChild("Backpack") -- ลองเช็คหลายที่
+    if not skillFolder then return skillList end
 
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-
-        if Value then
-            floatConnection = RunService.RenderStepped:Connect(function()
-                local enemy = getClosestEnemy()
-                if enemy and enemy:FindFirstChild("HumanoidRootPart") then
-                    root.Anchored = true
-                    root.CFrame = enemy.HumanoidRootPart.CFrame + Vector3.new(0, 30, 0)
-                end
-            end)
-        else
-            root.Anchored = false
+    for _, skill in pairs(skillFolder:GetChildren()) do
+        if skill:IsA("RemoteEvent") or skill:IsA("Tool") then
+            table.insert(skillList, skill.Name)
         end
     end
-})
-
--- ✅ โหลด buffer
-local buffer
-pcall(function()
-    buffer = getrenv().buffer or require(ReplicatedStorage:WaitForChild("buffer"))
-end)
-if not buffer then
-    warn("❌ ไม่พบ buffer module")
-    return
+    return skillList
 end
 
--- ✅ โหลด Remote
-local remote
-pcall(function()
-    remote = ReplicatedStorage:WaitForChild("EventConfiguration"):WaitForChild("Your")
-end)
-if not remote then
-    warn("❌ ไม่พบ Remote Event")
-    return
-end
+-- ตัวแปรควบคุม
+local currentSkill = 1
+local skillDelay = 0.3
+local skillList = {}
+local farming = false
+local connection = nil
 
--- ✅ สกิลที่เตรียมไว้
-local skillArgs = {
-    {
-        buffer.fromstring("u"),
-        buffer.fromstring("\254\a\000\006\0045098\006\00550981\006\004cast\v>\211\139...") -- ใส่ args เต็มของคุณตรงนี้
-    },
-    -- 🔁 เพิ่มสกิลทั้งหมดของคุณที่นี่
-}
-
--- ✅ Auto Skill + UI Slider
-local casting = false
-local connection
-local currentIndex = 1
-local lastCast = 0
-local cooldown = 0.3 -- default
-
-Tabs.MainTab:Slider({
-    Title = "ปรับความเร็วการยิงสกิล (วินาที)",
-    Min = 0.01,
-    Max = 1.0,
+-- UI Slider ปรับความเร็ว
+Tab:Slider({
+    Title = "ดีเลย์ระหว่างใช้สกิล (วินาที)",
+    Min = 0.05,
+    Max = 1,
     Default = 0.3,
-    Rounding = 2,
-    Callback = function(value)
-        cooldown = value
+    Callback = function(v)
+        skillDelay = v
     end
 })
 
-Tabs.MainTab:Toggle({
-    Title = "Auto Skill",
-    Icon = "zap",
+-- ปุ่มเปิด/ปิด
+Tab:Toggle({
+    Title = "Auto TP + All Skills",
+    Icon = "magic",
     Value = false,
-    Callback = function(Value)
-        casting = Value
-
+    Callback = function(enabled)
+        farming = enabled
         if connection then
             connection:Disconnect()
             connection = nil
         end
 
-        if casting then
-            lastCast = 0
-            connection = RunService.RenderStepped:Connect(function()
-                local currentTime = tick()
-                if currentTime - lastCast >= cooldown then
-                    if skillArgs[currentIndex] then
-                        remote:FireServer(unpack(skillArgs[currentIndex]))
-                        currentIndex = (currentIndex % #skillArgs) + 1
-                        lastCast = currentTime
-                    end
-                end
-            end)
+        if not enabled then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then root.Anchored = false end
+            return
         end
+
+        -- โหลดสกิลทั้งหมด
+        skillList = getAllSkills()
+        currentSkill = 1
+
+        -- เริ่มลูป
+        connection = RunService.RenderStepped:Connect(function()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+
+            local target = getClosestEnemy()
+            if target and target:FindFirstChild("HumanoidRootPart") then
+                root.Anchored = true
+                root.CFrame = target.HumanoidRootPart.CFrame + Vector3.new(0, 30, 0)
+
+                if tick() - (connection._lastCast or 0) >= skillDelay then
+                    local skillName = skillList[currentSkill]
+                    if skillName then
+                        -- ยิงสกิล (เปลี่ยนรูปแบบตามระบบ Remote จริงของเกม)
+                        remote:FireServer("cast", skillName)
+
+                        currentSkill = (currentSkill % #skillList) + 1
+                    end
+                    connection._lastCast = tick()
+                end
+            end
+        end)
     end
 })
