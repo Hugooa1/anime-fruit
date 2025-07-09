@@ -1,164 +1,58 @@
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local autoTP = false
+local tpConnection
 
-local Window = WindUI:CreateWindow({
-    Title = "Anime Fruit",
-    Icon = "door-open",
-    Author = "By Poomipad Chaisanan",
-    Size = UDim2.fromOffset(500, 400),
-    Transparent = true,
-    Theme = "Dark",
-    SideBarWidth = 200,
-    Background = "", 
-    BackgroundImageTransparency = 0.42,
-    HideSearchBar = true,
-    ScrollBarEnabled = false,
-    User = {
-        Enabled = true,
-        Anonymous = false,
-        Callback = function() end,
-    },
-})
+-- ฟังก์ชันค้นหาศัตรูที่ใกล้ที่สุด
+local function getNearestEnemy()
+    local root = getHumanoidRootPart()
+    if not root then return nil end
 
-local Tabs = {
-    MainTab = Window:Tab({ Title = "Main ", Icon = "crown"}), 
-}
+    local closestEnemy = nil
+    local shortestDistance = math.huge
 
-Tabs.MainTab:Section({ Title = "Main" })
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("Model") and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+            if v ~= player.Character and v.Humanoid.Health > 0 then
+                local distance = (v.HumanoidRootPart.Position - root.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestEnemy = v
+                end
+            end
+        end
+    end
 
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-
-local selectedLocation = "Wave #1"
-local floatConnection
-
-local positions = {
-    ["Wave #1"] = Vector3.new(-4468.57, 6631.96, 368.50),
-    ["Wave #2"] = Vector3.new(-4474.67, 6569.42, 380.77),
-    ["Wave #3"] = Vector3.new(-4421.64, 6692.12, 714.89),
-    ["Wave #4"] = Vector3.new(-4883.03, 6568.32, 602.04),
-    ["Wave #5"] = Vector3.new(-4371.73, 7583.04, 380.89)
-}
-
-local function getHumanoidRootPart()
-    local character = player.Character or player.CharacterAdded:Wait()
-    return character:WaitForChild("HumanoidRootPart", 5)
+    return closestEnemy
 end
 
-Tabs.MainTab:Dropdown({
-    Title = "Select Wave",
-    Values = {"Wave #1", "Wave #2", "Wave #3", "Wave #4", "Wave #5"},
-    Default = "Wave #1",
-    Callback = function(value)
-        selectedLocation = value
-    end
-})
-
+-- Toggle สำหรับ Auto TP
 Tabs.MainTab:Toggle({
-    Title = "TP",
-    Icon = "arrow-up",
+    Title = "Auto TP to Enemy",
+    Icon = "crosshair",
     Value = false,
     Callback = function(Value)
-        if floatConnection then
-            floatConnection:Disconnect()
-            floatConnection = nil
+        autoTP = Value
+
+        if tpConnection then
+            tpConnection:Disconnect()
+            tpConnection = nil
         end
 
-        local root = getHumanoidRootPart()
-        if not root then return end
+        if autoTP then
+            tpConnection = RunService.RenderStepped:Connect(function()
+                local root = getHumanoidRootPart()
+                if not root then return end
 
-        if Value then
-            floatConnection = RunService.RenderStepped:Connect(function()
-                local basePos = positions[selectedLocation]
-                if basePos then
-                    root.Anchored = true
-                    root.CFrame = CFrame.new(basePos + Vector3.new(0, 30, 0))
+                local enemy = getNearestEnemy()
+                if enemy and enemy:FindFirstChild("HumanoidRootPart") then
+                    local offset = Vector3.new(0, 0, -5) -- อยู่ห่างจากศัตรู 5 studs
+                    root.CFrame = enemy.HumanoidRootPart.CFrame * CFrame.new(offset)
                 end
             end)
         else
-            root.Anchored = false
-        end
-    end
-})
-
-Tabs.MainTab:Button({
-    Title = "Reset TP Lock",
-    Icon = "refresh-ccw",
-    Callback = function()
-        local root = getHumanoidRootPart()
-        if root then
-            root.Anchored = false
-        end
-    end
-})
-
--- ✅ โหลด Buffer และ Remote
-local success, buffer = pcall(function()
-    return buffer or getrenv().buffer or require(game:GetService("ReplicatedStorage"):WaitForChild("buffer"))
-end)
-
-if not success then
-    warn("❌ โหลด buffer ไม่ได้")
-    return
-end
-
-local remote = game:GetService("ReplicatedStorage"):FindFirstChild("EventConfiguration") and
-               game.ReplicatedStorage.EventConfiguration:FindFirstChild("Your")
-
-if not remote then
-    warn("❌ ไม่พบ Remote 'Your'")
-    return
-end
-
--- ✅ Skill Pack (ของเดิม)
-local skillArgs = {
-    -- ... (ใช้ args ทั้งหมดจากของเดิม)
-}
-
--- ✅ ตัวแปรควบคุมการใช้งาน
-local casting = false
-local connection
-local lastCast = 0
-local cooldown = 1.5 -- เริ่มต้น ค่า default
-
--- ✅ เพิ่ม Slider UI ให้ปรับ cooldown ได้
-Tabs.MainTab:Slider({
-    Title = "Cooldown (วินาที)",
-    Icon = "clock",
-    Default = cooldown,
-    Min = 0.3,
-    Max = 5,
-    Decimals = 1,
-    Callback = function(value)
-        cooldown = value
-    end
-})
-
--- ✅ ปรับ Auto Skill ให้ยิง "ทุกสกิลพร้อมกัน"
-Tabs.MainTab:Toggle({
-    Title = "Auto Skill (All)",
-    Icon = "zap",
-    Value = false,
-    Callback = function(Value)
-        casting = Value
-
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
-
-        if casting then
-            lastCast = 0
-            connection = RunService.RenderStepped:Connect(function()
-                if tick() - lastCast >= cooldown then
-                    for _, skill in ipairs(skillArgs) do
-                        pcall(function()
-                            remote:FireServer(unpack(skill))
-                        end)
-                    end
-                    lastCast = tick()
-                end
-            end)
+            -- หยุดวาร์ป
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.Anchored = false
+            end
         end
     end
 })
