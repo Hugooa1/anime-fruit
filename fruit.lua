@@ -1,131 +1,164 @@
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local Window = WindUI:CreateWindow({
+    Title = "Anime Fruit",
+    Icon = "door-open",
+    Author = "By Poomipad Chaisanan",
+    Size = UDim2.fromOffset(500, 400),
+    Transparent = true,
+    Theme = "Dark",
+    SideBarWidth = 200,
+    Background = "", 
+    BackgroundImageTransparency = 0.42,
+    HideSearchBar = true,
+    ScrollBarEnabled = false,
+    User = {
+        Enabled = true,
+        Anonymous = false,
+        Callback = function() end,
+    },
+})
+
+local Tabs = {
+    MainTab = Window:Tab({ Title = "Main ", Icon = "crown"}), 
+}
+
+Tabs.MainTab:Section({ Title = "Main" })
+
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
 
-repeat task.wait() until LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+local selectedLocation = "Wave #1"
+local floatConnection
 
--- โหลด WindUI
-local success, WindUI = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local positions = {
+    ["Wave #1"] = Vector3.new(-4468.57, 6631.96, 368.50),
+    ["Wave #2"] = Vector3.new(-4474.67, 6569.42, 380.77),
+    ["Wave #3"] = Vector3.new(-4421.64, 6692.12, 714.89),
+    ["Wave #4"] = Vector3.new(-4883.03, 6568.32, 602.04),
+    ["Wave #5"] = Vector3.new(-4371.73, 7583.04, 380.89)
+}
+
+local function getHumanoidRootPart()
+    local character = player.Character or player.CharacterAdded:Wait()
+    return character:WaitForChild("HumanoidRootPart", 5)
+end
+
+Tabs.MainTab:Dropdown({
+    Title = "Select Wave",
+    Values = {"Wave #1", "Wave #2", "Wave #3", "Wave #4", "Wave #5"},
+    Default = "Wave #1",
+    Callback = function(value)
+        selectedLocation = value
+    end
+})
+
+Tabs.MainTab:Toggle({
+    Title = "TP",
+    Icon = "arrow-up",
+    Value = false,
+    Callback = function(Value)
+        if floatConnection then
+            floatConnection:Disconnect()
+            floatConnection = nil
+        end
+
+        local root = getHumanoidRootPart()
+        if not root then return end
+
+        if Value then
+            floatConnection = RunService.RenderStepped:Connect(function()
+                local basePos = positions[selectedLocation]
+                if basePos then
+                    root.Anchored = true
+                    root.CFrame = CFrame.new(basePos + Vector3.new(0, 30, 0))
+                end
+            end)
+        else
+            root.Anchored = false
+        end
+    end
+})
+
+Tabs.MainTab:Button({
+    Title = "Reset TP Lock",
+    Icon = "refresh-ccw",
+    Callback = function()
+        local root = getHumanoidRootPart()
+        if root then
+            root.Anchored = false
+        end
+    end
+})
+
+-- ✅ โหลด Buffer และ Remote
+local success, buffer = pcall(function()
+    return buffer or getrenv().buffer or require(game:GetService("ReplicatedStorage"):WaitForChild("buffer"))
 end)
-if not success or not WindUI then
-    warn("❌ โหลด WindUI ไม่สำเร็จ")
+
+if not success then
+    warn("❌ โหลด buffer ไม่ได้")
     return
 end
 
--- UI
-local Window = WindUI:CreateWindow({
-    Title = "Anime Fruit Auto All Skills",
+local remote = game:GetService("ReplicatedStorage"):FindFirstChild("EventConfiguration") and
+               game.ReplicatedStorage.EventConfiguration:FindFirstChild("Your")
+
+if not remote then
+    warn("❌ ไม่พบ Remote 'Your'")
+    return
+end
+
+-- ✅ Skill Pack (ของเดิม)
+local skillArgs = {
+    -- ... (ใช้ args ทั้งหมดจากของเดิม)
+}
+
+-- ✅ ตัวแปรควบคุมการใช้งาน
+local casting = false
+local connection
+local lastCast = 0
+local cooldown = 1.5 -- เริ่มต้น ค่า default
+
+-- ✅ เพิ่ม Slider UI ให้ปรับ cooldown ได้
+Tabs.MainTab:Slider({
+    Title = "Cooldown (วินาที)",
+    Icon = "clock",
+    Default = cooldown,
+    Min = 0.3,
+    Max = 5,
+    Decimals = 1,
+    Callback = function(value)
+        cooldown = value
+    end
+})
+
+-- ✅ ปรับ Auto Skill ให้ยิง "ทุกสกิลพร้อมกัน"
+Tabs.MainTab:Toggle({
+    Title = "Auto Skill (All)",
     Icon = "zap",
-    Author = "By Poomipad Chaisanan",
-    Size = UDim2.fromOffset(500, 400),
-    Theme = "Dark",
-})
-local Tab = Window:Tab({ Title = "Main", Icon = "swords" })
-Tab:Section({ Title = "Auto Farm Settings" })
-
--- หา Remote (เปลี่ยนให้ตรงกับในเกม)
-local remote = ReplicatedStorage:WaitForChild("EventConfiguration"):WaitForChild("SkillRemote") -- ⚠️ เปลี่ยนชื่อให้ตรง
-
--- หาศัตรูใกล้สุด
-local function getClosestEnemy()
-    local myChar = LocalPlayer.Character
-    local myPos = myChar and myChar:FindFirstChild("HumanoidRootPart") and myChar.HumanoidRootPart.Position
-    if not myPos then return end
-    local closest, dist = nil, math.huge
-
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
-            if obj.Humanoid.Health > 0 then
-                local d = (myPos - obj.HumanoidRootPart.Position).Magnitude
-                if d < dist then
-                    dist = d
-                    closest = obj
-                end
-            end
-        end
-    end
-    return closest
-end
-
--- ค้นหาชื่อสกิลทั้งหมด
-local function getAllSkills()
-    local skillList = {}
-    local skillFolder = LocalPlayer:FindFirstChild("Skills") or LocalPlayer:FindFirstChild("Backpack") -- ลองเช็คหลายที่
-    if not skillFolder then return skillList end
-
-    for _, skill in pairs(skillFolder:GetChildren()) do
-        if skill:IsA("RemoteEvent") or skill:IsA("Tool") then
-            table.insert(skillList, skill.Name)
-        end
-    end
-    return skillList
-end
-
--- ตัวแปรควบคุม
-local currentSkill = 1
-local skillDelay = 0.3
-local skillList = {}
-local farming = false
-local connection = nil
-
--- UI Slider ปรับความเร็ว
-Tab:Slider({
-    Title = "ดีเลย์ระหว่างใช้สกิล (วินาที)",
-    Min = 0.05,
-    Max = 1,
-    Default = 0.3,
-    Callback = function(v)
-        skillDelay = v
-    end
-})
-
--- ปุ่มเปิด/ปิด
-Tab:Toggle({
-    Title = "Auto TP + All Skills",
-    Icon = "magic",
     Value = false,
-    Callback = function(enabled)
-        farming = enabled
+    Callback = function(Value)
+        casting = Value
+
         if connection then
             connection:Disconnect()
             connection = nil
         end
 
-        if not enabled then
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            if root then root.Anchored = false end
-            return
-        end
-
-        -- โหลดสกิลทั้งหมด
-        skillList = getAllSkills()
-        currentSkill = 1
-
-        -- เริ่มลูป
-        connection = RunService.RenderStepped:Connect(function()
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            if not root then return end
-
-            local target = getClosestEnemy()
-            if target and target:FindFirstChild("HumanoidRootPart") then
-                root.Anchored = true
-                root.CFrame = target.HumanoidRootPart.CFrame + Vector3.new(0, 30, 0)
-
-                if tick() - (connection._lastCast or 0) >= skillDelay then
-                    local skillName = skillList[currentSkill]
-                    if skillName then
-                        -- ยิงสกิล (เปลี่ยนรูปแบบตามระบบ Remote จริงของเกม)
-                        remote:FireServer("cast", skillName)
-
-                        currentSkill = (currentSkill % #skillList) + 1
+        if casting then
+            lastCast = 0
+            connection = RunService.RenderStepped:Connect(function()
+                if tick() - lastCast >= cooldown then
+                    for _, skill in ipairs(skillArgs) do
+                        pcall(function()
+                            remote:FireServer(unpack(skill))
+                        end)
                     end
-                    connection._lastCast = tick()
+                    lastCast = tick()
                 end
-            end
-        end)
+            end)
+        end
     end
 })
